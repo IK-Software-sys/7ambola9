@@ -3,211 +3,140 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Peach's Castle - Mobile Controls</title>
+    <title>3D Map Explorer</title>
     <style>
         body {
             margin: 0;
-            overflow: hidden;
-            background-color: #87CEEB; /* Sky blue */
-            touch-action: none; /* Prevents mobile scrolling */
+            overflow: hidden; /* Prevents scrolling */
+            background-color: #87CEEB; /* Sky blue background */
         }
-        #canvas-container {
-            width: 100vw;
-            height: 100vh;
+        canvas {
             display: block;
         }
-        /* Joystick Zones */
-        #joystick-left {
+        /* Joystick Containers */
+        #joystick-left, #joystick-right {
             position: absolute;
             bottom: 20px;
-            left: 20px;
-            width: 150px;
-            height: 150px;
+            width: 120px;
+            height: 120px;
             z-index: 10;
         }
-        #joystick-right {
-            position: absolute;
-            bottom: 20px;
-            right: 20px;
-            width: 150px;
-            height: 150px;
-            z-index: 10;
-        }
+        #joystick-left { left: 20px; }
+        #joystick-right { right: 20px; }
+        
         #loading {
             position: absolute;
-            top: 50%;
-            left: 50%;
+            top: 50%; left: 50%;
             transform: translate(-50%, -50%);
-            font-family: sans-serif;
+            font-family: Arial, sans-serif;
             font-size: 24px;
             color: white;
-            font-weight: bold;
-            text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
             z-index: 20;
         }
     </style>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/nipplejs/0.10.1/nipplejs.min.js"></script>
 </head>
 <body>
+
     <div id="loading">Loading Map...</div>
-    <div id="canvas-container"></div>
     <div id="joystick-left"></div>
     <div id="joystick-right"></div>
 
-    <script type="importmap">
-        {
-            "imports": {
-                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
-                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
-            }
-        }
-    </script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/nipplejs/0.10.1/nipplejs.min.js"></script>
 
-    <script type="module">
-        import * as THREE from 'three';
-        import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-
-        // 1. Scene Setup
-        const container = document.getElementById('canvas-container');
+    <script>
+        // 1. SCENE SETUP
         const scene = new THREE.Scene();
-        scene.background = new THREE.Color(0x87CEEB);
-        scene.fog = new THREE.Fog(0x87CEEB, 20, 100);
-
         const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-        const renderer = new THREE.WebGLRenderer({ antialias: true });
-        renderer.setSize(window.innerWidth, window.innerHeight);
-        renderer.shadowMap.enabled = true;
-        container.appendChild(renderer.domElement);
-
-        // 2. Lights
-        const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 0.8);
-        hemiLight.position.set(0, 20, 0);
-        scene.add(hemiLight);
-
-        const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
-        dirLight.position.set(10, 20, 10);
-        dirLight.castShadow = true;
-        scene.add(dirLight);
-
-        // 3. Player Setup (A capsule mesh)
-        const playerHeight = 1.6;
-        const playerGeometry = new THREE.CapsuleGeometry(0.4, playerHeight - 0.8, 4, 8);
-        const playerMaterial = new THREE.MeshStandardMaterial({ color: 0xff0000 });
-        const player = new THREE.Mesh(playerGeometry, playerMaterial);
-        player.position.set(0, 5, 0); // Start slightly in the air
-        scene.add(player);
-
-        // Attach camera to player's "head"
-        camera.position.set(0, playerHeight / 2 - 0.2, 0);
-        player.add(camera);
-
-        // 4. Map Loading
-        let mapMeshes = [];
-        const loader = new GLTFLoader();
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
         
-        // IMPORTANT: Replace this URL with your RAW GitHub URL or GitHub Pages URL.
-        // Also note how spaces are encoded as %20
-        const mapUrl = 'https://github.com/IK-Software-sys/7ambola9/raw/refs/heads/main/nintendo_64_-_super_mario_64_-_locations_-_peach%20(2).glb/nintendo_64_-_super_mario_64_-_locations_-_peach%20(2).glb';
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
 
-        loader.load(mapUrl, (gltf) => {
-            const map = gltf.scene;
-            scene.add(map);
-            
-            // Collect meshes for collision detection
-            map.traverse((child) => {
-                if (child.isMesh) {
-                    mapMeshes.push(child);
-                    child.receiveShadow = true;
-                    child.castShadow = true;
-                }
-            });
+        // 2. LIGHTING (So the map isn't pitch black)
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+        scene.add(ambientLight);
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.5);
+        directionalLight.position.set(10, 20, 10);
+        scene.add(directionalLight);
+
+        // 3. LOAD THE MAP
+        const loader = new THREE.GLTFLoader();
+        // Make sure your file is renamed to map.glb in your repository!
+        loader.load('map.glb', function (gltf) {
+            scene.add(gltf.scene);
             document.getElementById('loading').style.display = 'none';
-        }, undefined, (error) => {
-            console.error('Error loading map:', error);
-            document.getElementById('loading').innerText = "Error loading map. Check console/URL.";
+        }, undefined, function (error) {
+            console.error('Error loading model:', error);
+            document.getElementById('loading').innerText = "Error loading map. Check console.";
         });
 
-        // 5. Joystick Controls (Nipple.js)
-        let moveData = { forward: 0, turn: 0 };
+        // 4. SET STARTING POSITION
+        // You may need to change these numbers depending on how large/small your map is
+        camera.position.set(0, 5, 10); 
+
+        // 5. JOYSTICK SETUP
+        let moveData = { forward: 0, right: 0 };
         let lookData = { pitch: 0, yaw: 0 };
 
-        const joystickLeft = nipplejs.create({
+        // Left Joystick (Movement)
+        const joystickL = nipplejs.create({
             zone: document.getElementById('joystick-left'),
             mode: 'static',
             position: { left: '50%', top: '50%' },
             color: 'white'
         });
 
-        const joystickRight = nipplejs.create({
+        joystickL.on('move', (evt, data) => {
+            const angle = data.angle.radian;
+            const force = data.force > 1 ? 1 : data.force; // Normalize speed
+            // Calculate X and Z movement based on joystick angle
+            moveData.right = Math.cos(angle) * force * 0.2; 
+            moveData.forward = Math.sin(angle) * force * 0.2;
+        });
+        joystickL.on('end', () => { moveData = { forward: 0, right: 0 }; });
+
+        // Right Joystick (Looking around)
+        const joystickR = nipplejs.create({
             zone: document.getElementById('joystick-right'),
             mode: 'static',
             position: { left: '50%', top: '50%' },
             color: 'white'
         });
 
-        // Left Joystick (Movement)
-        joystickLeft.on('move', (evt, data) => {
-            moveData.forward = data.vector.y; // Forward/Backward
-            moveData.turn = data.vector.x;    // Strafe Left/Right
+        joystickR.on('move', (evt, data) => {
+            const force = data.force > 1 ? 1 : data.force;
+            // Negative/positive based on joystick direction
+            lookData.yaw = -Math.cos(data.angle.radian) * force * 0.03;
+            lookData.pitch = Math.sin(data.angle.radian) * force * 0.03;
         });
-        joystickLeft.on('end', () => { moveData = { forward: 0, turn: 0 }; });
+        joystickR.on('end', () => { lookData = { pitch: 0, yaw: 0 }; });
 
-        // Right Joystick (Look Around)
-        joystickRight.on('move', (evt, data) => {
-            lookData.yaw = -data.vector.x;   // Look Left/Right
-            lookData.pitch = data.vector.y;  // Look Up/Down
-        });
-        joystickRight.on('end', () => { lookData = { pitch: 0, yaw: 0 }; });
-
-        // 6. Movement & Collision Logic
-        const clock = new THREE.Clock();
-        const moveSpeed = 5.0;
-        const lookSpeed = 2.0;
-        const raycaster = new THREE.Raycaster();
-        const downVector = new THREE.Vector3(0, -1, 0);
-
+        // 6. ANIMATION LOOP (Runs every frame)
         function animate() {
             requestAnimationFrame(animate);
-            const delta = clock.getDelta();
 
-            // Camera Rotation (Look)
-            player.rotation.y += lookData.yaw * lookSpeed * delta;
-            camera.rotation.x += lookData.pitch * lookSpeed * delta;
-            // Clamp camera up/down rotation to prevent doing flips
-            camera.rotation.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, camera.rotation.x));
+            // Handle looking around
+            camera.rotation.y += lookData.yaw;
+            camera.rotation.x += lookData.pitch;
+            
+            // Clamp looking up and down so you don't flip backwards
+            camera.rotation.x = Math.max(-Math.PI/2, Math.min(Math.PI/2, camera.rotation.x));
 
-            // Player Movement (Strafe and Forward)
-            if (moveData.forward !== 0 || moveData.turn !== 0) {
-                const moveVector = new THREE.Vector3(moveData.turn, 0, -moveData.forward);
-                moveVector.applyQuaternion(player.quaternion); // Move relative to where we are looking
-                moveVector.normalize().multiplyScalar(moveSpeed * delta);
-                player.position.add(moveVector);
-            }
-
-            // Basic Floor Collision (Gravity/Clamping)
-            if (mapMeshes.length > 0) {
-                // Cast a ray from slightly above the player, straight down
-                raycaster.set(new THREE.Vector3(player.position.x, player.position.y + 1, player.position.z), downVector);
-                const intersects = raycaster.intersectObjects(mapMeshes, false);
-
-                if (intersects.length > 0) {
-                    const floorY = intersects[0].point.y;
-                    // Snap player to floor if they are near it
-                    if (player.position.y - (playerHeight / 2) < floorY + 0.5) {
-                        player.position.y = floorY + (playerHeight / 2);
-                    }
-                } else {
-                    // Simple gravity if falling
-                    player.position.y -= 9.8 * delta;
-                }
-            }
+            // Handle movement (relative to where the camera is facing)
+            camera.translateX(moveData.right);
+            camera.translateZ(-moveData.forward);
+            
+            // Keep the camera from rolling (tilting side to side)
+            camera.rotation.z = 0; 
 
             renderer.render(scene, camera);
         }
 
         animate();
 
-        // Handle window resize
+        // 7. HANDLE WINDOW RESIZING
         window.addEventListener('resize', () => {
             camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
@@ -216,3 +145,4 @@
     </script>
 </body>
 </html>
+
