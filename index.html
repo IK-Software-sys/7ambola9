@@ -2,180 +2,287 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>3D Map Explorer - Gravity & Swipe</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Jelly 3D Viewer</title>
     <style>
-        body, html {
+        body {
             margin: 0;
             padding: 0;
-            width: 100%;
-            height: 100%;
-            overflow: hidden; /* Prevents scrolling */
-            background-color: #87CEEB; /* Sky blue background */
-            touch-action: none; /* Prevents mobile pull-to-refresh */
+            overflow: hidden;
+            background-color: #1a1a1a;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            -webkit-user-select: none;
+            user-select: none;
         }
-        canvas {
-            display: block;
+
+        #canvas-container {
             width: 100vw;
             height: 100vh;
-        }
-        /* Single Left Joystick */
-        #joystick-left {
             position: absolute;
-            bottom: 30px;
-            left: 30px;
-            width: 120px;
-            height: 120px;
-            z-index: 10;
+            top: 0;
+            left: 0;
         }
-        
-        #loading {
+
+        /* UI Overlay */
+        .ui-container {
             position: absolute;
-            top: 50%; left: 50%;
-            transform: translate(-50%, -50%);
-            font-family: Arial, sans-serif;
-            font-size: 24px;
+            bottom: 40px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 15px;
+            pointer-events: none;
+            width: 90%;
+            max-width: 400px;
+        }
+
+        .btn {
+            background: rgba(255, 255, 255, 0.2);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border: 2px solid rgba(255, 255, 255, 0.4);
             color: white;
-            z-index: 20;
-            text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+            padding: 15px 35px;
+            font-size: 18px;
+            font-weight: bold;
+            border-radius: 30px;
+            cursor: pointer;
+            pointer-events: auto;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+            transition: all 0.2s ease;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            width: 100%;
+            text-align: center;
+        }
+
+        .btn:active {
+            transform: scale(0.95);
+            background: rgba(255, 255, 255, 0.4);
+        }
+
+        .btn.active {
+            background: #ff477e;
+            border-color: #ff85a2;
+            box-shadow: 0 0 20px rgba(255, 71, 126, 0.6);
+        }
+
+        #instruction {
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 14px;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.5);
+            text-align: center;
         }
     </style>
 </head>
 <body>
 
-    <div id="loading">Loading Map...</div>
-    <div id="joystick-left"></div>
+    <div id="canvas-container"></div>
+
+    <div class="ui-container">
+        <div id="instruction">Orbit mode: Drag to rotate | Pinch to zoom</div>
+        <button id="interact-btn" class="btn">Interact Mode: OFF</button>
+    </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/nipplejs/0.10.1/nipplejs.min.js"></script>
 
     <script>
-        // 1. SCENE SETUP
+        // --- Scene Setup ---
+        const container = document.getElementById('canvas-container');
         const scene = new THREE.Scene();
-        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-        
+        scene.background = new THREE.Color(0x1a1a2e);
+
+        const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
+        camera.position.set(0, 0, 5);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setPixelRatio(window.devicePixelRatio);
         renderer.setSize(window.innerWidth, window.innerHeight);
-        renderer.setPixelRatio(window.devicePixelRatio); // Sharper graphics on mobile
-        document.body.appendChild(renderer.domElement);
+        renderer.shadowMap.enabled = true;
+        container.appendChild(renderer.domElement);
 
-        // 2. LIGHTING
-        const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+        // --- Lighting ---
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
         scene.add(ambientLight);
-        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.5);
-        directionalLight.position.set(10, 20, 10);
-        scene.add(directionalLight);
 
-        // 3. LOAD THE MAP & PREPARE PHYSICS
-        let mapModel = null;
+        const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        dirLight.position.set(5, 10, 7);
+        scene.add(dirLight);
+
+        const pointLight = new THREE.PointLight(0x00a8ff, 1, 10);
+        pointLight.position.set(-3, 3, 3);
+        scene.add(pointLight);
+
+        // --- Controls ---
+        const controls = new THREE.OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.05;
+        controls.maxPolarAngle = Math.PI / 2 + 0.1; // Don't go too far below ground
+
+        // --- State Variables ---
+        let jellyMesh = null;
+        let isInteractMode = false;
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+
+        // Custom Uniforms for the Jelly Wobble Shader
+        const jellyUniforms = {
+            uTime: { value: 0 },
+            uImpactPoint: { value: new THREE.Vector3() },
+            uImpactTime: { value: -999.0 }, // Start far in the past
+            uWobbleStrength: { value: 0.0 }
+        };
+
+        // --- Load the GLTF Jelly Model ---
         const loader = new THREE.GLTFLoader();
         
-        loader.load('map.glb', function (gltf) {
-            mapModel = gltf.scene;
-            scene.add(mapModel);
-            document.getElementById('loading').style.display = 'none';
+        // Target 'Jel.glb' assuming it sits in the same repository folder
+        loader.load('Jel.glb', function (gltf) {
+            const model = gltf.scene;
+            
+            // Center the model automatically
+            const box = new THREE.Box3().setFromObject(model);
+            const center = box.getCenter(new THREE.Vector3());
+            model.position.sub(center);
+
+            // Inject custom Jelly Material behavior into the model
+            model.traverse(function (child) {
+                if (child.isMesh) {
+                    jellyMesh = child;
+                    modifyMaterial(child);
+                }
+            });
+
+            scene.add(model);
         }, undefined, function (error) {
-            console.error('Error loading model:', error);
-            document.getElementById('loading').innerText = "Error loading map. Check console.";
+            console.error('Error loading Jel.glb:', error);
         });
 
-        // 4. PLAYER SETTINGS (Adjust these based on your map's scale)
-        const playerHeight = 15; // How tall the player is above the floor
-        const walkSpeed = 1.5;   // Speed of the joystick movement
-        const fallSpeed = 2.0;   // How fast gravity pulls you down
-        camera.position.set(0, playerHeight + 50, 0); // Drop in from above
+        // --- Custom Jelly Material Modification ---
+        function modifyMaterial(mesh) {
+            // Take the existing material or create a nice shiny jelly-like default
+            const oldMat = mesh.material;
+            
+            const jellyMat = new THREE.MeshStandardMaterial({
+                color: oldMat ? oldMat.color : 0xff477e,
+                roughness: 0.1,
+                metalness: 0.1,
+                clearcoat: 1.0,      // Makes it look wet/shiny
+                clearcoatRoughness: 0.1
+            });
 
-        // 5. MOVEMENT & JOYSTICK SETUP
-        let moveData = { forward: 0, right: 0 };
-        const joystickL = nipplejs.create({
-            zone: document.getElementById('joystick-left'),
-            mode: 'static',
-            position: { left: '80px', bottom: '80px' },
-            color: 'white'
-        });
+            // Inject custom math logic into the vertex shader compiled by Three.js
+            jellyMat.onBeforeCompile = (shader) => {
+                shader.uniforms.uTime = jellyUniforms.uTime;
+                shader.uniforms.uImpactPoint = jellyUniforms.uImpactPoint;
+                shader.uniforms.uImpactTime = jellyUniforms.uImpactTime;
 
-        joystickL.on('move', (evt, data) => {
-            const angle = data.angle.radian;
-            const force = data.force > 1 ? 1 : data.force;
-            moveData.right = Math.cos(angle) * force * walkSpeed; 
-            moveData.forward = Math.sin(angle) * force * walkSpeed;
-        });
-        joystickL.on('end', () => { moveData = { forward: 0, right: 0 }; });
+                // Add uniforms to vertex shader header
+                shader.vertexShader = `
+                    uniform float uTime;
+                    uniform vec3 uImpactPoint;
+                    uniform float uImpactTime;
+                    ${shader.vertexShader}
+                `;
 
-        // 6. SWIPE TO AIM SETUP
-        let isDragging = false;
-        let previousTouch = { x: 0, y: 0 };
+                // Modify the vertex positions right before they transform
+                shader.vertexShader = shader.vertexShader.replace(
+                    '#include <begin_vertex>',
+                    `
+                    #include <begin_vertex>
+                    
+                    // Calculate distance from the interaction impact point to this vertex
+                    // Transform transformed position to world space to compare accurately
+                    vec4 worldPosition = modelMatrix * vec4(position, 1.0);
+                    float dist = distance(worldPosition.xyz, uImpactPoint);
+                    
+                    // Time elapsed since user touched it
+                    float timeSinceImpact = uTime - uImpactTime;
+                    
+                    // Only wobble within a wave duration (e.g., 2.0 seconds) and close to the touch point
+                    if (timeSinceImpact > 0.0 && timeSinceImpact < 2.0 && dist < 1.5) {
+                        // Decay over time and distance
+                        float wave = sin(timeSinceImpact * 15.0 - dist * 8.0);
+                        float amplitude = 0.15 * exp(-timeSinceImpact * 2.0) * (1.0 - dist/1.5);
+                        
+                        // Push the vertex outward along its normal vector
+                        transformed += objectNormal * wave * amplitude;
+                    }
+                    `
+                );
+            };
 
-        // We attach touch events to the canvas so it doesn't interfere with the joystick
-        const canvas = renderer.domElement;
-        
-        canvas.addEventListener('touchstart', (e) => {
-            isDragging = true;
-            previousTouch.x = e.touches[0].clientX;
-            previousTouch.y = e.touches[0].clientY;
-        }, { passive: false });
+            mesh.material = jellyMat;
+        }
 
-        canvas.addEventListener('touchmove', (e) => {
-            if (isDragging) {
-                const currentTouch = { x: e.touches[0].clientX, y: e.touches[0].clientY };
-                const deltaX = currentTouch.x - previousTouch.x;
-                const deltaY = currentTouch.y - previousTouch.y;
+        // --- UI Interactions ---
+        const interactBtn = document.getElementById('interact-btn');
+        const instruction = document.getElementById('instruction');
 
-                // Adjust sensitivity here (0.005)
-                camera.rotation.y -= deltaX * 0.005;
-                camera.rotation.x -= deltaY * 0.005;
-                
-                // Clamp looking up and down so you don't break your neck
-                camera.rotation.x = Math.max(-Math.PI/2, Math.min(Math.PI/2, camera.rotation.x));
-
-                previousTouch = currentTouch;
+        interactBtn.addEventListener('click', () => {
+            isInteractMode = !isInteractMode;
+            if (isInteractMode) {
+                interactBtn.textContent = "Interact Mode: ON";
+                interactBtn.classList.add('active');
+                instruction.textContent = "Tap anywhere on the Jelly to poke it!";
+                controls.enabled = false; // Stop camera rotation so user can poke mesh
+            } else {
+                interactBtn.textContent = "Interact Mode: OFF";
+                interactBtn.classList.remove('active');
+                instruction.textContent = "Orbit mode: Drag to rotate | Pinch to zoom";
+                controls.enabled = true; // Turn camera controls back on
             }
-        }, { passive: false });
+        });
 
-        canvas.addEventListener('touchend', () => { isDragging = false; });
+        // --- Handle Taps/Clicks on the Jelly ---
+        function handleInteraction(event) {
+            if (!isInteractMode || !jellyMesh) return;
 
-        // 7. GRAVITY & ANIMATION LOOP
-        const raycaster = new THREE.Raycaster();
-        const downVector = new THREE.Vector3(0, -1, 0);
+            // Normalize coordinates for Raycasting (works for both desktop & mobile)
+            const clientX = event.touches ? event.touches[0].clientX : event.clientX;
+            const clientY = event.touches ? event.touches[0].clientY : event.clientY;
+
+            mouse.x = (clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(clientY / window.innerHeight) * 2 + 1;
+
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObject(jellyMesh);
+
+            if (intersects.length > 0) {
+                // We hit the jelly! Send the exact point of intersection to the shader
+                jellyUniforms.uImpactPoint.value.copy(intersects[0].point);
+                jellyUniforms.uImpactTime.value = clock.getElapsedTime();
+            }
+        }
+
+        window.addEventListener('mousedown', handleInteraction);
+        window.addEventListener('touchstart', handleInteraction, { passive: true });
+
+        // --- Animation Loop ---
+        const clock = new THREE.Clock();
 
         function animate() {
             requestAnimationFrame(animate);
 
-            // Handle horizontal movement
-            camera.translateX(moveData.right);
-            camera.translateZ(-moveData.forward);
-            camera.rotation.z = 0; // Prevent camera roll
+            const elapsedTime = clock.getElapsedTime();
+            jellyUniforms.uTime.value = elapsedTime;
 
-            // Handle Gravity & Floor Collisions
-            if (mapModel) {
-                // Shoot a laser straight down from the camera
-                raycaster.set(camera.position, downVector);
-                // Check what the laser hits on the map
-                const intersects = raycaster.intersectObject(mapModel, true);
-
-                if (intersects.length > 0) {
-                    const distanceToFloor = intersects[0].distance;
-
-                    if (distanceToFloor < playerHeight) {
-                        // We are too low (walking up a hill or stairs), push up
-                        camera.position.y += (playerHeight - distanceToFloor);
-                    } else if (distanceToFloor > playerHeight + 0.5) {
-                        // We are too high (falling)
-                        camera.position.y -= fallSpeed;
-                    }
-                } else {
-                    // If the laser hits nothing (we walked off the edge of the map), keep falling
-                    camera.position.y -= fallSpeed;
-                }
+            // Idle micro-wobble so it feels alive even when untouched
+            if (jellyMesh && !isInteractMode) {
+                jellyMesh.rotation.y = Math.sin(elapsedTime * 0.5) * 0.05;
             }
 
+            controls.update();
             renderer.render(scene, camera);
         }
 
         animate();
 
-        // 8. HANDLE WINDOW RESIZING
+        // --- Handle Resizing ---
         window.addEventListener('resize', () => {
             camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
@@ -184,4 +291,3 @@
     </script>
 </body>
 </html>
-
