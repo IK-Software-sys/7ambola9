@@ -3,16 +3,16 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Jelly 3D Viewer</title>
+    <title>Jelly 3D Viewer & Interactor</title>
     <style>
         body {
             margin: 0;
             padding: 0;
             overflow: hidden;
-            background-color: #1a1a1a;
+            background-color: #1a1a2e;
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            -webkit-user-select: none;
             user-select: none;
+            -webkit-user-select: none;
         }
 
         #canvas-container {
@@ -21,273 +21,326 @@
             position: absolute;
             top: 0;
             left: 0;
+            z-index: 1;
         }
 
         /* UI Overlay */
-        .ui-container {
+        #ui-container {
             position: absolute;
-            bottom: 40px;
+            bottom: 30px;
             left: 50%;
             transform: translateX(-50%);
+            z-index: 10;
             display: flex;
             flex-direction: column;
             align-items: center;
-            gap: 15px;
-            pointer-events: none;
+            gap: 10px;
             width: 90%;
             max-width: 400px;
         }
 
         .btn {
-            background: rgba(255, 255, 255, 0.2);
+            background: rgba(255, 255, 255, 0.15);
             backdrop-filter: blur(10px);
             -webkit-backdrop-filter: blur(10px);
-            border: 2px solid rgba(255, 255, 255, 0.4);
+            border: 1px solid rgba(255, 255, 255, 0.25);
             color: white;
-            padding: 15px 35px;
-            font-size: 18px;
+            padding: 15px 32px;
+            font-size: 16px;
             font-weight: bold;
-            border-radius: 30px;
+            border-radius: 50px;
             cursor: pointer;
-            pointer-events: auto;
             box-shadow: 0 4px 15px rgba(0,0,0,0.3);
-            transition: all 0.2s ease;
-            text-transform: uppercase;
-            letter-spacing: 1px;
+            transition: all 0.3s ease;
             width: 100%;
             text-align: center;
-        }
-
-        .btn:active {
-            transform: scale(0.95);
-            background: rgba(255, 255, 255, 0.4);
+            text-transform: uppercase;
+            letter-spacing: 1px;
         }
 
         .btn.active {
-            background: #ff477e;
-            border-color: #ff85a2;
-            box-shadow: 0 0 20px rgba(255, 71, 126, 0.6);
+            background: #ff2a74;
+            border-color: #ff6699;
+            box-shadow: 0 0 20px rgba(255, 42, 116, 0.6);
         }
 
-        #instruction {
-            color: rgba(255, 255, 255, 0.8);
+        #status-text {
+            color: rgba(255, 255, 255, 0.7);
             font-size: 14px;
             text-shadow: 0 2px 4px rgba(0,0,0,0.5);
+            pointer-events: none;
             text-align: center;
         }
+
+        /* Loading Screen */
+        #loading {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: #1a1a2e;
+            z-index: 100;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            font-size: 20px;
+            transition: opacity 0.5s ease;
+        }
     </style>
-</head>
-<body>
-
-    <div id="canvas-container"></div>
-
-    <div class="ui-container">
-        <div id="instruction">Orbit mode: Drag to rotate | Pinch to zoom</div>
-        <button id="interact-btn" class="btn">Interact Mode: OFF</button>
-    </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+</head>
+<body>
+
+    <div id="loading">Loading Jelly Model...</div>
+    <div id="canvas-container"></div>
+
+    <div id="ui-container">
+        <div id="status-text">Mode: View & Rotate</div>
+        <button id="interact-btn" class="btn">Interact Mode: OFF</button>
+    </div>
 
     <script>
         // --- Scene Setup ---
         const container = document.getElementById('canvas-container');
         const scene = new THREE.Scene();
-        scene.background = new THREE.Color(0x1a1a2e);
+        
+        // Soft background color gradients can be handled via renderer
+        const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.set(0, 2, 5);
 
-        const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
-        camera.position.set(0, 0, 5);
-
-        const renderer = new THREE.WebGLRenderer({ antialias: true });
-        renderer.setPixelRatio(window.devicePixelRatio);
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
         renderer.shadowMap.enabled = true;
+        renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        renderer.toneMappingExposure = 1.2;
         container.appendChild(renderer.domElement);
 
         // --- Lighting ---
         const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
         scene.add(ambientLight);
 
-        const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        const dirLight = new THREE.DirectionalLight(0xffffff, 1.0);
         dirLight.position.set(5, 10, 7);
+        dirLight.castShadow = true;
         scene.add(dirLight);
 
-        const pointLight = new THREE.PointLight(0x00a8ff, 1, 10);
-        pointLight.position.set(-3, 3, 3);
+        const pointLight = new THREE.PointLight(0x00aaff, 1, 10);
+        pointLight.position.set(-3, 3, -3);
         scene.add(pointLight);
 
         // --- Controls ---
         const controls = new THREE.OrbitControls(camera, renderer.domElement);
         controls.enableDamping = true;
         controls.dampingFactor = 0.05;
-        controls.maxPolarAngle = Math.PI / 2 + 0.1; // Don't go too far below ground
+        controls.maxPolarAngle = Math.PI / 2 + 0.1; // Don't go completely under floor
 
-        // --- State Variables ---
+        // --- Jelly Physics State Variables ---
         let jellyMesh = null;
+        let originalPositions = null;
+        let currentPositions = null;
+        let velocities = null;
         let isInteractMode = false;
+        let isPointerDown = false;
+
         const raycaster = new THREE.Raycaster();
-        const mouse = new THREE.Vector2();
+        const pointer = new THREE.Vector2();
 
-        // Custom Uniforms for the Jelly Wobble Shader
-        const jellyUniforms = {
-            uTime: { value: 0 },
-            uImpactPoint: { value: new THREE.Vector3() },
-            uImpactTime: { value: -999.0 }, // Start far in the past
-            uWobbleStrength: { value: 0.0 }
-        };
-
-        // --- Load the GLTF Jelly Model ---
+        // --- Load GLTF Model ---
         const loader = new THREE.GLTFLoader();
         
-        // Target 'Jel.glb' assuming it sits in the same repository folder
-        loader.load('Jel.glb', function (gltf) {
+        // Relative path looks for 'Jel.glb' in the same root folder on GitHub
+        loader.load('./Jel.glb', function (gltf) {
             const model = gltf.scene;
             
-            // Center the model automatically
-            const box = new THREE.Box3().setFromObject(model);
-            const center = box.getCenter(new THREE.Vector3());
-            model.position.sub(center);
-
-            // Inject custom Jelly Material behavior into the model
-            model.traverse(function (child) {
-                if (child.isMesh) {
+            // Traverse model to find the core mesh
+            model.traverse((child) => {
+                if (child.isMesh && !jellyMesh) {
                     jellyMesh = child;
-                    modifyMaterial(child);
+                    
+                    // Make sure geometry is unique and read/write accessible
+                    jellyMesh.geometry = jellyMesh.geometry.clone();
+                    
+                    const posAttr = jellyMesh.geometry.attributes.position;
+                    originalPositions = posAttr.array.slice(); // Clone original shape
+                    currentPositions = posAttr.array;          // Reference live array
+                    velocities = new Float32Array(posAttr.count * 3); // Track velocity per axis per vertex
+                    
+                    // Optional: Boost look of slime materials if desired
+                    if(jellyMesh.material) {
+                        jellyMesh.material.roughness = 0.1;
+                        jellyMesh.material.metalness = 0.1;
+                    }
                 }
             });
 
+            // Center model
+            const box = new THREE.Box3().setFromObject(model);
+            const center = box.getCenter(new THREE.Vector3());
+            model.position.sub(center); 
+
             scene.add(model);
+            
+            // Hide loading screen
+            document.getElementById('loading').style.opacity = 0;
+            setTimeout(() => document.getElementById('loading').style.display = 'none', 500);
+
         }, undefined, function (error) {
-            console.error('Error loading Jel.glb:', error);
+            console.error('An error happened while loading the GLB file:', error);
+            document.getElementById('loading').innerText = "Failed to load 'Jel.glb'. Check file path!";
         });
 
-        // --- Custom Jelly Material Modification ---
-        function modifyMaterial(mesh) {
-            // Take the existing material or create a nice shiny jelly-like default
-            const oldMat = mesh.material;
-            
-            const jellyMat = new THREE.MeshStandardMaterial({
-                color: oldMat ? oldMat.color : 0xff477e,
-                roughness: 0.1,
-                metalness: 0.1,
-                clearcoat: 1.0,      // Makes it look wet/shiny
-                clearcoatRoughness: 0.1
-            });
-
-            // Inject custom math logic into the vertex shader compiled by Three.js
-            jellyMat.onBeforeCompile = (shader) => {
-                shader.uniforms.uTime = jellyUniforms.uTime;
-                shader.uniforms.uImpactPoint = jellyUniforms.uImpactPoint;
-                shader.uniforms.uImpactTime = jellyUniforms.uImpactTime;
-
-                // Add uniforms to vertex shader header
-                shader.vertexShader = `
-                    uniform float uTime;
-                    uniform vec3 uImpactPoint;
-                    uniform float uImpactTime;
-                    ${shader.vertexShader}
-                `;
-
-                // Modify the vertex positions right before they transform
-                shader.vertexShader = shader.vertexShader.replace(
-                    '#include <begin_vertex>',
-                    `
-                    #include <begin_vertex>
-                    
-                    // Calculate distance from the interaction impact point to this vertex
-                    // Transform transformed position to world space to compare accurately
-                    vec4 worldPosition = modelMatrix * vec4(position, 1.0);
-                    float dist = distance(worldPosition.xyz, uImpactPoint);
-                    
-                    // Time elapsed since user touched it
-                    float timeSinceImpact = uTime - uImpactTime;
-                    
-                    // Only wobble within a wave duration (e.g., 2.0 seconds) and close to the touch point
-                    if (timeSinceImpact > 0.0 && timeSinceImpact < 2.0 && dist < 1.5) {
-                        // Decay over time and distance
-                        float wave = sin(timeSinceImpact * 15.0 - dist * 8.0);
-                        float amplitude = 0.15 * exp(-timeSinceImpact * 2.0) * (1.0 - dist/1.5);
-                        
-                        // Push the vertex outward along its normal vector
-                        transformed += objectNormal * wave * amplitude;
-                    }
-                    `
-                );
-            };
-
-            mesh.material = jellyMat;
-        }
-
-        // --- UI Interactions ---
+        // --- Interaction Toggle Logic ---
         const interactBtn = document.getElementById('interact-btn');
-        const instruction = document.getElementById('instruction');
+        const statusText = document.getElementById('status-text');
 
         interactBtn.addEventListener('click', () => {
             isInteractMode = !isInteractMode;
             if (isInteractMode) {
-                interactBtn.textContent = "Interact Mode: ON";
+                interactBtn.innerText = "Interact Mode: ON";
                 interactBtn.classList.add('active');
-                instruction.textContent = "Tap anywhere on the Jelly to poke it!";
-                controls.enabled = false; // Stop camera rotation so user can poke mesh
+                statusText.innerText = "Action: Drag/Touch the jelly to squish it!";
+                controls.enabled = false; // Turn off orbital rotation so we can deform it instead
             } else {
-                interactBtn.textContent = "Interact Mode: OFF";
+                interactBtn.innerText = "Interact Mode: OFF";
                 interactBtn.classList.remove('active');
-                instruction.textContent = "Orbit mode: Drag to rotate | Pinch to zoom";
-                controls.enabled = true; // Turn camera controls back on
+                statusText.innerText = "Mode: View & Rotate";
+                controls.enabled = true;  // Re-enable orbiting camera controls
             }
         });
 
-        // --- Handle Taps/Clicks on the Jelly ---
-        function handleInteraction(event) {
-            if (!isInteractMode || !jellyMesh) return;
+        // --- Pointer/Touch Tracking ---
+        function updatePointer(event) {
+            let clientX = event.clientX;
+            let clientY = event.clientY;
+            
+            // Handle mobile touches
+            if (event.touches && event.touches.length > 0) {
+                clientX = event.touches[0].clientX;
+                clientY = event.touches[0].clientY;
+            }
 
-            // Normalize coordinates for Raycasting (works for both desktop & mobile)
-            const clientX = event.touches ? event.touches[0].clientX : event.clientX;
-            const clientY = event.touches ? event.touches[0].clientY : event.clientY;
+            pointer.x = (clientX / window.innerWidth) * 2 - 1;
+            pointer.y = -(clientY / window.innerHeight) * 2 + 1;
+        }
 
-            mouse.x = (clientX / window.innerWidth) * 2 - 1;
-            mouse.y = -(clientY / window.innerHeight) * 2 + 1;
+        window.addEventListener('pointerdown', (e) => {
+            isPointerDown = true;
+            updatePointer(e);
+            if(isInteractMode) deformJelly();
+        });
 
-            raycaster.setFromCamera(mouse, camera);
+        window.addEventListener('pointermove', (e) => {
+            updatePointer(e);
+            if (isInteractMode && isPointerDown) {
+                deformJelly();
+            }
+        });
+
+        window.addEventListener('pointerup', () => { isPointerDown = false; });
+        window.addEventListener('touchmove', (e) => { if(isInteractMode) e.preventDefault(); }, { passive: false });
+
+        // --- Slime/Jelly Physics Engine ---
+        function deformJelly() {
+            if (!jellyMesh || !currentPositions) return;
+
+            raycaster.setFromCamera(pointer, camera);
             const intersects = raycaster.intersectObject(jellyMesh);
 
             if (intersects.length > 0) {
-                // We hit the jelly! Send the exact point of intersection to the shader
-                jellyUniforms.uImpactPoint.value.copy(intersects[0].point);
-                jellyUniforms.uImpactTime.value = clock.getElapsedTime();
+                const hitPoint = intersects[0].point;
+                // Convert world contact point to local mesh space
+                const localHitPoint = jellyMesh.worldToLocal(hitPoint.clone());
+
+                const radius = 0.8;      // Radius of influence for deformation
+                const strength = 0.25;    // How deep the deformation pushes
+
+                for (let i = 0; i < currentPositions.length / 3; i++) {
+                    const idx = i * 3;
+                    
+                    // Vertex positions
+                    const vx = currentPositions[idx];
+                    const vy = currentPositions[idx + 1];
+                    const vz = currentPositions[idx + 2];
+
+                    // Distance from pointer impact
+                    const dx = vx - localHitPoint.x;
+                    const dy = vy - localHitPoint.y;
+                    const dz = vz - localHitPoint.z;
+                    const distance = Math.sqrt(dx*dx + dy*dy + dz*dz);
+
+                    if (distance < radius) {
+                        // Soft-falloff calculation
+                        const falloff = (1 - distance / radius) * strength;
+                        
+                        // Push vertices outward/inward based on drag impact vectors
+                        velocities[idx] += dx * falloff;
+                        velocities[idx + 1] += dy * falloff;
+                        velocities[idx + 2] += dz * falloff;
+                    }
+                }
             }
         }
 
-        window.addEventListener('mousedown', handleInteraction);
-        window.addEventListener('touchstart', handleInteraction, { passive: true });
-
-        // --- Animation Loop ---
+        // --- Physics & Render Animation Frame loop ---
         const clock = new THREE.Clock();
 
         function animate() {
             requestAnimationFrame(animate);
 
-            const elapsedTime = clock.getElapsedTime();
-            jellyUniforms.uTime.value = elapsedTime;
+            // 1. Process Jelly Spring Jiggle Math
+            if (jellyMesh && originalPositions) {
+                const posAttr = jellyMesh.geometry.attributes.position;
+                
+                const stiffness = 0.12;  // Spring snap-back tight force
+                const damping = 0.82;    // Slime viscosity/slowdown rate (lower = more syrup-like)
 
-            // Idle micro-wobble so it feels alive even when untouched
-            if (jellyMesh && !isInteractMode) {
-                jellyMesh.rotation.y = Math.sin(elapsedTime * 0.5) * 0.05;
+                for (let i = 0; i < posAttr.count; i++) {
+                    const idx = i * 3;
+
+                    // Spring physics formula towards target rest-shape anchor: F = -kx - cv
+                    let fx = (originalPositions[idx] - currentPositions[idx]) * stiffness;
+                    let fy = (originalPositions[idx + 1] - currentPositions[idx + 1]) * stiffness;
+                    let fz = (originalPositions[idx + 2] - currentPositions[idx + 2]) * stiffness;
+
+                    velocities[idx] = (velocities[idx] + fx) * damping;
+                    velocities[idx + 1] = (velocities[idx + 1] + fy) * damping;
+                    velocities[idx + 2] = (velocities[idx + 2] + fz) * damping;
+
+                    currentPositions[idx] += velocities[idx];
+                    currentPositions[idx + 1] += velocities[idx + 1];
+                    currentPositions[idx + 2] += velocities[idx + 2];
+                }
+                
+                // Alert WebGL that geometry attributes have shifted dynamically
+                posAttr.needsUpdate = true;
+                jellyMesh.geometry.computeVertexNormals();
             }
 
-            controls.update();
+            // 2. Camera Controls update
+            if (!isInteractMode) {
+                controls.update();
+            }
+
             renderer.render(scene, camera);
         }
 
-        animate();
+        // --- Window Resize optimization ---
+        window.addEventListener('resize', onWindowResize, false);
 
-        // --- Handle Resizing ---
-        window.addEventListener('resize', () => {
+        function onWindowResize() {
             camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
             renderer.setSize(window.innerWidth, window.innerHeight);
-        });
+        }
+
+        // Initialize Loop
+        animate();
     </script>
 </body>
 </html>
