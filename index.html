@@ -112,7 +112,7 @@
         const scene = new THREE.Scene();
         
         const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
-        camera.position.set(0, 2, 5);
+        camera.position.set(0, 1.5, 4);
 
         const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
         renderer.setSize(window.innerWidth, window.innerHeight);
@@ -122,19 +122,20 @@
         renderer.toneMappingExposure = 1.4;
         container.appendChild(renderer.domElement);
 
-        const gridHelper = new THREE.GridHelper(10, 10, 0xff2a74, 0x444466);
-        gridHelper.position.y = -1;
+        // Subdued grid for spatial orientation
+        const gridHelper = new THREE.GridHelper(10, 10, 0xff2a74, 0x333344);
+        gridHelper.position.y = -1.2;
         scene.add(gridHelper);
 
         // --- Lighting ---
-        const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.9);
         scene.add(ambientLight);
 
         const dirLight = new THREE.DirectionalLight(0xffffff, 1.5);
         dirLight.position.set(5, 10, 7);
         scene.add(dirLight);
 
-        const dirLight2 = new THREE.DirectionalLight(0x00aaff, 0.5);
+        const dirLight2 = new THREE.DirectionalLight(0x00aaff, 0.6);
         dirLight2.position.set(-5, 5, -5);
         scene.add(dirLight2);
 
@@ -144,83 +145,89 @@
         controls.dampingFactor = 0.05;
         controls.target.set(0, 0, 0);
 
-        // --- Physics State ---
-        let jellyMesh = null;
-        let originalPositions = null;
-        let currentPositions = null;
-        let velocities = null;
+        // --- Physics & Multi-Mesh Storage Arrays ---
+        const jellyMeshes = []; 
+        let modelContainer = new THREE.Group(); // Universal wrapper to maintain relative spacing
+        scene.add(modelContainer);
+
+        let globalScaleFactor = 1.0;
         let isInteractMode = false;
         let isPointerDown = false;
 
         const raycaster = new THREE.Raycaster();
         const pointer = new THREE.Vector2();
 
-        // --- Geometry Normalizing Loader ---
+        // --- Loader Engine ---
         const loader = new THREE.GLTFLoader();
         
         loader.load('./Jel.glb', function (gltf) {
             const model = gltf.scene;
             
+            // 1. Compute overall bounding dimensions of all meshes joined together
+            const box = new THREE.Box3().setFromObject(model);
+            const center = box.getCenter(new THREE.Vector3());
+            const size = box.getSize(new THREE.Vector3());
+            
+            // 2. Uniformly center the internal group
+            model.position.sub(center);
+            modelContainer.add(model);
+
+            // 3. Scale parent container cleanly to perfect view proportions
+            const maxDim = Math.max(size.x, size.y, size.z);
+            globalScaleFactor = 2.2 / maxDim;
+            modelContainer.scale.set(globalScaleFactor, globalScaleFactor, globalScaleFactor);
+
+            // 4. Force global matrices to update instantly
+            modelContainer.updateMatrixWorld(true);
+
+            // 5. Traverse and convert ALL individual meshes into jiggling soft-bodies
             model.traverse((child) => {
-                if (child.isMesh && !jellyMesh) {
-                    jellyMesh = child;
-                    
-                    // 1. Un-index the geometry so individual vertices can stretch freely
-                    if (jellyMesh.geometry.index) {
-                        jellyMesh.geometry = jellyMesh.geometry.toNonIndexed();
+                if (child.isMesh) {
+                    // Split indexing apart so vertex segments pull away independently 
+                    if (child.geometry.index) {
+                        child.geometry = child.geometry.toNonIndexed();
                     } else {
-                        jellyMesh.geometry = jellyMesh.geometry.clone();
+                        child.geometry = child.geometry.clone();
                     }
+
+                    const posAttr = child.geometry.attributes.position;
                     
-                    // 2. Natively center the raw math coordinates to 0,0,0
-                    jellyMesh.geometry.computeBoundingBox();
-                    const center = new THREE.Vector3();
-                    jellyMesh.geometry.boundingBox.getCenter(center);
-                    jellyMesh.geometry.translate(-center.x, -center.y, -center.z);
+                    // Bundle structural tracking data per individual mesh component
+                    jellyMeshes.push({
+                        mesh: child,
+                        originalPositions: posAttr.array.slice(),
+                        currentPositions: posAttr.array,
+                        velocities: new Float32Array(posAttr.count * 3),
+                        posAttr: posAttr
+                    });
 
-                    // 3. Natively scale the raw math coordinates so the width is exactly 2.0
-                    jellyMesh.geometry.computeBoundingBox();
-                    const size = new THREE.Vector3();
-                    jellyMesh.geometry.boundingBox.getSize(size);
-                    const maxDim = Math.max(size.x, size.y, size.z);
-                    const scaleFactor = 2 / maxDim;
-                    jellyMesh.geometry.scale(scaleFactor, scaleFactor, scaleFactor);
-
-                    // 4. NOW we capture the coordinates for physics (they are perfectly normalized)
-                    const posAttr = jellyMesh.geometry.attributes.position;
-                    originalPositions = posAttr.array.slice(); 
-                    currentPositions = posAttr.array;          
-                    velocities = new Float32Array(posAttr.count * 3); 
-
-                    if(jellyMesh.material) {
-                        jellyMesh.material.roughness = 0.1;
-                        jellyMesh.material.metalness = 0.1;
-                        jellyMesh.material.side = THREE.DoubleSide; 
+                    if(child.material) {
+                        child.material.roughness = 0.15;
+                        child.material.metalness = 0.1;
+                        child.material.side = THREE.DoubleSide; 
                     }
                 }
             });
 
-            scene.add(model);
-            
-            camera.position.set(0, 1.5, 4);
+            // Adjust camera focus
             controls.target.set(0, 0, 0);
             controls.update();
 
+            // Clear loading display
             document.getElementById('loading').style.opacity = 0;
             setTimeout(() => document.getElementById('loading').style.display = 'none', 500);
 
         }, function (xhr) {
             if(xhr.total > 0) {
                 const percent = Math.round((xhr.loaded / xhr.total) * 100);
-                document.getElementById('loading-text').innerText = `Loading: ${percent}%`;
+                document.getElementById('loading-text').innerText = `Loading Assets: ${percent}%`;
             }
         }, function (error) {
             console.error(error);
-            document.getElementById('loading-text').innerHTML = 
-                `<span style="color: #ff2a74;">Error loading 'Jel.glb'</span>`;
+            document.getElementById('loading-text').innerHTML = `<span style="color: #ff2a74;">Failed to read model files.</span>`;
         });
 
-        // --- UI Interactions ---
+        // --- UI Operations ---
         const interactBtn = document.getElementById('interact-btn');
         const statusText = document.getElementById('status-text');
 
@@ -229,7 +236,7 @@
             if (isInteractMode) {
                 interactBtn.innerText = "Interact Mode: ON";
                 interactBtn.classList.add('active');
-                statusText.innerText = "Action: Drag/Touch the jelly directly to squish it!";
+                statusText.innerText = "Action: Drag across the jelly to stretch and squish it!";
                 controls.enabled = false; 
             } else {
                 interactBtn.innerText = "Interact Mode: OFF";
@@ -239,7 +246,7 @@
             }
         });
 
-        // --- Touch Inputs ---
+        // --- Unified Pointer Input Handler ---
         function updatePointer(event) {
             let clientX = event.clientX;
             let clientY = event.clientY;
@@ -254,60 +261,75 @@
         window.addEventListener('pointerdown', (e) => {
             isPointerDown = true;
             updatePointer(e);
-            if(isInteractMode) deformJelly();
+            if(isInteractMode) deformJellyMeshStructure();
         });
 
         window.addEventListener('pointermove', (e) => {
             updatePointer(e);
-            if (isInteractMode && isPointerDown) deformJelly();
+            if (isInteractMode && isPointerDown) deformJellyMeshStructure();
         });
 
         window.addEventListener('pointerup', () => { isPointerDown = false; });
         window.addEventListener('touchmove', (e) => { if(isInteractMode) e.preventDefault(); }, { passive: false });
 
-        // --- Jelly Physics Deformation ---
-        function deformJelly() {
-            if (!jellyMesh || !currentPositions) return;
+        // --- Cross-Mesh Physics Deformation ---
+        function deformJellyMeshStructure() {
+            if (jellyMeshes.length === 0) return;
 
             raycaster.setFromCamera(pointer, camera);
-            const intersects = raycaster.intersectObject(jellyMesh);
+            // Intersect against everything inside the model wrapper
+            const intersects = raycaster.intersectObjects(modelContainer.children, true);
 
             if (intersects.length > 0) {
-                // Since the geometry itself was scaled, world and local hit points align perfectly
-                const localHitPoint = jellyMesh.worldToLocal(intersects[0].point.clone());
+                const hitPoint = intersects[0].point; // Accurate world intersection point
 
-                // These values will now reliably work because the model is always 2 units wide!
-                const radius = 0.5;      
-                const strength = 0.3;    
+                // Standard global space metrics
+                const worldRadius = 0.45;      
+                const worldStrength = 0.28;    
 
-                for (let i = 0; i < currentPositions.length / 3; i++) {
-                    const idx = i * 3;
-                    
-                    const dx = currentPositions[idx] - localHitPoint.x;
-                    const dy = currentPositions[idx + 1] - localHitPoint.y;
-                    const dz = currentPositions[idx + 2] - localHitPoint.z;
-                    const distance = Math.sqrt(dx*dx + dy*dy + dz*dz);
+                // Translate metrics safely relative to custom scale profiles
+                const localRadius = worldRadius / globalScaleFactor;
+                const localStrength = worldStrength / globalScaleFactor;
 
-                    if (distance < radius) {
-                        const falloff = (1 - distance / radius) * strength;
-                        velocities[idx] += dx * falloff;
-                        velocities[idx + 1] += dy * falloff;
-                        velocities[idx + 2] += dz * falloff;
+                // Loop through ALL meshes so items touching inside the radius deform concurrently
+                jellyMeshes.forEach((jelly) => {
+                    const localHitPoint = jelly.mesh.worldToLocal(hitPoint.clone());
+                    const currentPositions = jelly.currentPositions;
+                    const velocities = jelly.velocities;
+
+                    for (let i = 0; i < currentPositions.length / 3; i++) {
+                        const idx = i * 3;
+                        
+                        const dx = currentPositions[idx] - localHitPoint.x;
+                        const dy = currentPositions[idx + 1] - localHitPoint.y;
+                        const dz = currentPositions[idx + 2] - localHitPoint.z;
+                        const distance = Math.sqrt(dx*dx + dy*dy + dz*dz);
+
+                        if (distance < localRadius) {
+                            const falloff = (1 - distance / localRadius) * localStrength;
+                            // Push outward from the center point of touch impact
+                            velocities[idx] += dx * falloff;
+                            velocities[idx + 1] += dy * falloff;
+                            velocities[idx + 2] += dz * falloff;
+                        }
                     }
-                }
+                });
             }
         }
 
-        // --- Frame Loop ---
+        // --- Core Animation Frame Loop ---
         function animate() {
             requestAnimationFrame(animate);
 
-            if (jellyMesh && originalPositions) {
-                const posAttr = jellyMesh.geometry.attributes.position;
+            // Compute physics updates for every mesh found inside the GLB
+            jellyMeshes.forEach((jelly) => {
+                const posAttr = jelly.posAttr;
+                const currentPositions = jelly.currentPositions;
+                const originalPositions = jelly.originalPositions;
+                const velocities = jelly.velocities;
                 
-                // Tweak these to change how the jelly feels!
-                const stiffness = 0.15;  // How fast it snaps back
-                const damping = 0.85;    // How long it wiggles before stopping
+                const stiffness = 0.14;  // Snap-back return speed
+                const damping = 0.84;    // Residual momentum retention rate
 
                 for (let i = 0; i < posAttr.count; i++) {
                     const idx = i * 3;
@@ -326,8 +348,8 @@
                 }
                 
                 posAttr.needsUpdate = true;
-                jellyMesh.geometry.computeVertexNormals(); // Recalculates lighting to look smooth while moving
-            }
+                jelly.mesh.geometry.computeVertexNormals();
+            });
 
             if (!isInteractMode) controls.update();
             renderer.render(scene, camera);
